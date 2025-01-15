@@ -1,19 +1,21 @@
-require('v8-compile-cache');
+// @ts-ignore
+await import("v8-compile-cache");
 
-import {app, components, ipcMain} from 'electron';
-import {join} from 'path';
-app.setPath('userData', join(app.getPath('appData'), 'Cider'));
+import { app, components, ipcMain } from "electron";
+import { join } from "path";
+import { Store } from "./base/store.js";
+import { AppEvents } from "./base/app.js";
+import { Plugins } from "./base/plugins.js";
+import { BrowserWindow } from "./base/browserwindow.js";
+import { utils } from "./base/utils.js";
 
+const appName = 'sh.cider.classic';
 
-// Analytics for debugging fun yeah.
-import {init as Sentry} from '@sentry/electron';
-import {Store} from "./base/store";
-import {AppEvents} from "./base/app";
-import {Plugins} from "./base/plugins";
-import {utils} from "./base/utils";
-import {BrowserWindow} from "./base/browserwindow";
-
-Sentry({dsn: "https://68c422bfaaf44dea880b86aad5a820d2@o954055.ingest.sentry.io/6112214"});
+if (!app.isPackaged) {
+  app.setPath('userData', join(app.getPath('appData'), `${appName}.dev`));
+} else {
+  app.setPath('userData', join(app.getPath('appData'), appName));
+}
 
 new Store();
 const Cider = new AppEvents();
@@ -22,66 +24,60 @@ const CiderPlug = new Plugins();
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * App Event Handlers
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+app.on("ready", async () => {
+  await utils.initializeTranslations();
+  Cider.ready(CiderPlug);
 
-app.on('ready', () => {
-    Cider.ready(CiderPlug);
+  console.log("[Cider] Application is Ready. Creating Window.");
+  if (!app.isPackaged) {
+    console.info("[Cider] Running in development mode.");
+    // @ts-ignore
+    (await import("vue-devtools")).default.install();
+  }
+  components.whenReady().then(async () => {
+    const bw = new BrowserWindow();
+    console.log("[Cider] Creating Window.");
+    const win = await bw.createWindow();
 
-    console.log('[Cider] Application is Ready. Creating Window.')
-    if (!app.isPackaged) {
-        console.info('[Cider] Running in development mode.')
-        require('vue-devtools').install()
-    }
-
-    components.whenReady().then(async () => {
-        const bw = new BrowserWindow()
-        const win = await bw.createWindow()
-
-        win.on("ready-to-show", () => {
-            Cider.bwCreated();
-            CiderPlug.callPlugins('onReady', win);
-            win.show();
-        });
+    app.getGPUInfo("complete").then((gpuInfo) => {
+      console.log(gpuInfo);
     });
 
+    console.log("[Cider][Widevine] Status:", components.status());
+    Cider.bwCreated();
+    win.on("ready-to-show", () => {
+      console.debug("[Cider] Window is Ready.");
+      CiderPlug.callPlugins("onReady", win);
+      if (!app.commandLine.hasSwitch("hidden")) {
+        win.show();
+      }
+    });
+  });
 });
 
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Renderer Event Handlers
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-ipcMain.on('playbackStateDidChange', (event, attributes) => {
-    CiderPlug.callPlugins('onPlaybackStateDidChange', attributes);
+let rendererInitialized = false;
+ipcMain.handle("renderer-ready", (event) => {
+  if (rendererInitialized) return;
+  CiderPlug.callPlugins("onRendererReady", event);
+  rendererInitialized = true;
 });
 
-ipcMain.on('nowPlayingItemDidChange', (event, attributes) => {
-    CiderPlug.callPlugins('onNowPlayingItemDidChange', attributes);
+ipcMain.on("playbackStateDidChange", (_event, attributes) => {
+  CiderPlug.callPlugins("onPlaybackStateDidChange", attributes);
 });
 
-app.on('before-quit', () => {
-    CiderPlug.callPlugins('onBeforeQuit');
-    console.warn(`${app.getName()} exited.`);
+ipcMain.on("nowPlayingItemDidChange", (_event, attributes) => {
+  CiderPlug.callPlugins("onNowPlayingItemDidChange", attributes);
 });
 
-/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * Widevine Event Handlers
- * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+ipcMain.on("playbackTimeDidChange", (_event, attributes) => {
+  CiderPlug.callPlugins("playbackTimeDidChange", attributes);
+});
 
-// @ts-ignore
-app.on('widevine-ready', (version, lastVersion) => {
-    if (null !== lastVersion) {
-        console.log('[Cider][Widevine] Widevine ' + version + ', upgraded from ' + lastVersion + ', is ready to be used!')
-    } else {
-        console.log('[Cider][Widevine] Widevine ' + version + ' is ready to be used!')
-    }
-})
-
-// @ts-ignore
-app.on('widevine-update-pending', (currentVersion, pendingVersion) => {
-    console.log('[Cider][Widevine] Widevine ' + currentVersion + ' is ready to be upgraded to ' + pendingVersion + '!')
-})
-
-// @ts-ignore
-app.on('widevine-error', (error) => {
-    console.log('[Cider][Widevine] Widevine installation encountered an error: ' + error)
-    app.exit()
-})
+app.on("before-quit", () => {
+  CiderPlug.callPlugins("onBeforeQuit");
+  console.warn(`${app.getName()} exited.`);
+});

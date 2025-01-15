@@ -1,6 +1,10 @@
 # Building
 dist
 build
+.flatpak*
+yarn-cache
+src/renderer/style.css
+.pnpm-store
 
 # Misc
 .idea
@@ -135,7 +139,6 @@ dist
 .vscode-test
 
 # yarn v2
-yarn.lock
 .pnp.*
 .yarn/*
 .yarn/cache
@@ -316,3 +319,14 @@ src/renderer/workbox-962786f2.js.map
 keys.sh
 
 package-lock.json
+resources/b64.txt
+
+
+savedconfig/cider-config.json
+savedconfig/config.json
+savedconfig/session.json
+savedconfig/window-state.json
+src/main/base/sample.json
+
+# yeet circleci ci for now
+.circleci/
